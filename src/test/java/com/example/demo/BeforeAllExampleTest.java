@@ -2,8 +2,11 @@ package com.example.demo;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.TestMethodOrder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,8 +20,14 @@ import static org.junit.jupiter.api.Assertions.*;
  * - @BeforeAll runs ONCE before ALL test methods in the class
  * - The method must be static (unless using @TestInstance(Lifecycle.PER_CLASS))
  * - Perfect for expensive setup operations like database connections, file I/O, etc.
+ * 
+ * Test Ordering:
+ * - Using @TestMethodOrder(MethodOrderer.OrderAnnotation.class) to control execution order
+ * - Tests are executed in the order specified by @Order annotation
+ * - Lower numbers run first (1, 2, 3, ...)
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS) // This allows @BeforeAll to be non-static
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class) // Enable test ordering
 class BeforeAllExampleTest {
 
     // Shared resources that will be initialized once
@@ -66,8 +75,10 @@ class BeforeAllExampleTest {
 
     /**
      * Test 1: Uses the shared data initialized in @BeforeAll
+     * This test runs first (Order 1) and modifies sharedData
      */
     @Test
+    @Order(1) // This test will run first
     void test1_UsingSharedData() {
         System.out.println("Running test1_UsingSharedData");
         
@@ -87,8 +98,10 @@ class BeforeAllExampleTest {
     /**
      * Test 2: Also uses the same shared data
      * Notice that sharedData still has the modification from test1!
+     * This test runs second (Order 2) and expects test1 to have run first
      */
     @Test
+    @Order(2) // This test will run second, after test1
     void test2_UsingSharedDataAgain() {
         System.out.println("Running test2_UsingSharedDataAgain");
         
@@ -107,8 +120,10 @@ class BeforeAllExampleTest {
 
     /**
      * Test 3: Uses the expensive resource initialized once
+     * This test can run in any order since it doesn't depend on other tests
      */
     @Test
+    @Order(3) // This test will run third
     void test3_UsingExpensiveResource() {
         System.out.println("Running test3_UsingExpensiveResource");
         
@@ -122,8 +137,10 @@ class BeforeAllExampleTest {
 
     /**
      * Test 4: Demonstrates that @BeforeEach runs before each test
+     * This test can run in any order since it doesn't depend on other tests
      */
     @Test
+    @Order(4) // This test will run fourth
     void test4_BeforeEachExample() {
         System.out.println("Running test4_BeforeEachExample");
         
