@@ -1,8 +1,6 @@
 package com.example.demo;
 
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -12,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * This is the traditional and most common way to use @BeforeAll.
  * The method MUST be static when using the default test instance lifecycle.
  */
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SimpleBeforeAllExample {
 
     // Static variables that will be shared across all tests
@@ -52,6 +51,7 @@ class SimpleBeforeAllExample {
         System.out.println("\n🟢 @BeforeEach: Preparing for test #" + testCounter);
     }
 
+    @Order(1)
     @Test
     void test1_FirstTest() {
         currentTestName = "First Test";
@@ -65,6 +65,7 @@ class SimpleBeforeAllExample {
         assertEquals(1, testCounter);
     }
 
+    @Order(2)
     @Test
     void test2_SecondTest() {
         currentTestName = "Second Test";
@@ -78,6 +79,7 @@ class SimpleBeforeAllExample {
         assertEquals(2, testCounter);
     }
 
+    @Order(3)
     @Test
     void test3_ThirdTest() {
         currentTestName = "Third Test";
