@@ -1,0 +1,323 @@
+package com.example.demo.web;
+
+import com.example.demo.entity.User;
+import com.example.demo.repository.UserRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+/**
+ * ====================================================================================
+ * FULL INTEGRATION TEST WITH @SpringBootTest + JPA REPOSITORY + MockMvc
+ * ====================================================================================
+ * 
+ * This test demonstrates COMPLETE integration testing covering:
+ * 1. HTTP Layer (MockMvc) - Controller endpoints
+ * 2. Service Layer (Real UserService bean)
+ * 3. Repository Layer (Real UserRepository - Spring Data JPA)
+ * 4. Database Layer (H2 in-memory database)
+ * 
+ * FULL STACK TEST FLOW:
+ * HTTP Request → Controller → Service → Repository → Database → Response
+ * 
+ * KEY ANNOTATIONS EXPLAINED:
+ * -------------------------
+ * @SpringBootTest
+ *   - Loads FULL Spring Application Context
+ *   - All beans are created: Controller, Service, Repository, DataSource, etc.
+ *   - Database connection is established
+ *   - Real JPA EntityManager and TransactionManager are active
+ * 
+ * @AutoConfigureMockMvc
+ *   - Configures MockMvc to work with full Spring context
+ *   - Enables testing HTTP endpoints without starting a real server
+ * 
+ * @Transactional
+ *   - Each test runs in a transaction
+ *   - Transaction is rolled back after each test (clean state)
+ *   - Ensures test isolation (one test doesn't affect another)
+ * 
+ * @TestPropertySource
+ *   - Overrides application properties for tests
+ *   - Here: Uses H2 in-memory database
+ *   - Auto-creates tables from entities
+ * 
+ * WHAT GETS TESTED:
+ * -----------------
+ * ✅ Controller request mapping and parameter binding
+ * ✅ Service business logic (validation, processing)
+ * ✅ Repository database operations (CRUD)
+ * ✅ Database constraints and relationships
+ * ✅ Transaction management
+ * ✅ Error handling across layers
+ * ✅ JSON serialization/deserialization
+ * ✅ Full request/response cycle
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@Transactional  // Each test runs in a transaction that gets rolled back
+@TestPropertySource(properties = {
+		"spring.datasource.url=jdbc:h2:mem:testdb",
+		"spring.jpa.hibernate.ddl-auto=create-drop",
+		"spring.jpa.show-sql=true"
+})
+class UserControllerIntegrationTest {
+
+	@Autowired
+	private MockMvc mockMvc;
+
+	@Autowired
+	private UserRepository userRepository;  // Real repository - can query database directly!
+
+	@Autowired
+	private ObjectMapper objectMapper;  // For JSON conversion
+
+	/**
+	 * @BeforeEach runs before each test method
+	 * Since we use @Transactional, database is clean at the start of each test
+	 */
+	@BeforeEach
+	void setUp() {
+		// Database is automatically cleaned due to @Transactional rollback
+		// But we can also manually clear if needed:
+		userRepository.deleteAll();
+	}
+
+	// ============================================================================
+	// TEST 1: CREATE USER - Full Integration Test
+	// ============================================================================
+
+	/**
+	 * This test verifies the COMPLETE flow:
+	 * 1. HTTP POST request sent to /api/users
+	 * 2. Controller receives request
+	 * 3. Service validates and processes
+	 * 4. Repository saves to database
+	 * 5. Response returned with created user
+	 */
+	@Test
+	void createUser_returnsCreatedUser_withFullIntegration() throws Exception {
+		// Arrange: Create user object
+		User newUser = new User("john@example.com", "John Doe", 30);
+
+		// Act: Perform HTTP POST request
+		mockMvc.perform(post("/api/users")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(newUser)))
+				// Assert: Verify HTTP response
+				.andExpect(status().isCreated())
+				.andExpect(content().contentType(MediaType.APPLICATION_JSON))
+				.andExpect(jsonPath("$.email").value("john@example.com"))
+				.andExpect(jsonPath("$.name").value("John Doe"))
+				.andExpect(jsonPath("$.age").value(30))
+				.andExpect(jsonPath("$.id").exists());  // ID is generated by database
+
+		// Verify: Check database directly using repository
+		// This proves the data was actually saved to the database!
+		List<User> usersInDb = userRepository.findAll();
+		assertThat(usersInDb).hasSize(1);
+		assertThat(usersInDb.get(0).getEmail()).isEqualTo("john@example.com");
+		assertThat(usersInDb.get(0).getName()).isEqualTo("John Doe");
+		assertThat(usersInDb.get(0).getId()).isNotNull();  // ID was generated
+	}
+
+	// ============================================================================
+	// TEST 2: GET USER BY ID - Repository Direct Query
+	// ============================================================================
+
+	/**
+	 * This test demonstrates:
+	 * 1. Saving data directly using repository (bypassing controller/service)
+	 * 2. Then retrieving it through HTTP endpoint
+	 * 3. This proves repository and HTTP layer work together
+	 */
+	@Test
+	void getUserById_returnsUser_whenExists() throws Exception {
+		// Arrange: Save user directly to database using repository
+		User savedUser = userRepository.save(new User("jane@example.com", "Jane Smith", 25));
+		Long userId = savedUser.getId();
+
+		// Act: Retrieve user via HTTP GET
+		mockMvc.perform(get("/api/users/{id}", userId))
+				// Assert: Verify response
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.id").value(userId))
+				.andExpect(jsonPath("$.email").value("jane@example.com"))
+				.andExpect(jsonPath("$.name").value("Jane Smith"))
+				.andExpect(jsonPath("$.age").value(25));
+	}
+
+	// ============================================================================
+	// TEST 3: GET ALL USERS - Multiple Database Records
+	// ============================================================================
+
+	/**
+	 * Tests retrieving multiple users from database
+	 */
+	@Test
+	void getAllUsers_returnsAllUsers_fromDatabase() throws Exception {
+		// Arrange: Save multiple users directly to database
+		userRepository.save(new User("user1@example.com", "User One", 20));
+		userRepository.save(new User("user2@example.com", "User Two", 30));
+		userRepository.save(new User("user3@example.com", "User Three", 40));
+
+		// Verify repository has 3 users
+		assertThat(userRepository.count()).isEqualTo(3);
+
+		// Act & Assert: Retrieve via HTTP
+		mockMvc.perform(get("/api/users"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$", hasSize(3)))  // Verify array has 3 elements
+				.andExpect(jsonPath("$[0].email").exists())
+				.andExpect(jsonPath("$[1].email").exists())
+				.andExpect(jsonPath("$[2].email").exists());
+	}
+
+	// ============================================================================
+	// TEST 4: UPDATE USER - Service Logic + Database Update
+	// ============================================================================
+
+	/**
+	 * Tests the full update flow:
+	 * 1. Create user in database
+	 * 2. Update via HTTP PUT
+	 * 3. Verify changes in database
+	 */
+	@Test
+	void updateUser_updatesUserInDatabase() throws Exception {
+		// Arrange: Create and save user
+		User originalUser = userRepository.save(new User("update@example.com", "Original Name", 25));
+		Long userId = originalUser.getId();
+
+		// Act: Update user via HTTP PUT
+		User updatedData = new User("update@example.com", "Updated Name", 30);
+		mockMvc.perform(put("/api/users/{id}", userId)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(updatedData)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.name").value("Updated Name"))
+				.andExpect(jsonPath("$.age").value(30));
+
+		// Verify: Check database was actually updated
+		User userInDb = userRepository.findById(userId).orElseThrow();
+		assertThat(userInDb.getName()).isEqualTo("Updated Name");
+		assertThat(userInDb.getAge()).isEqualTo(30);
+	}
+
+	// ============================================================================
+	// TEST 5: DELETE USER - Repository Deletion
+	// ============================================================================
+
+	/**
+	 * Tests deletion through HTTP and verifies in database
+	 */
+	@Test
+	void deleteUser_removesUserFromDatabase() throws Exception {
+		// Arrange: Create user
+		User user = userRepository.save(new User("delete@example.com", "To Delete", 25));
+		Long userId = user.getId();
+		assertThat(userRepository.existsById(userId)).isTrue();
+
+		// Act: Delete via HTTP
+		mockMvc.perform(delete("/api/users/{id}", userId))
+				.andExpect(status().isNoContent());
+
+		// Verify: User is gone from database
+		assertThat(userRepository.existsById(userId)).isFalse();
+		assertThat(userRepository.count()).isEqualTo(0);
+	}
+
+	// ============================================================================
+	// TEST 6: SERVICE VALIDATION - Business Logic Testing
+	// ============================================================================
+
+	/**
+	 * This test verifies service layer validation works correctly
+	 * through the full stack (HTTP → Controller → Service → Repository)
+	 */
+	@Test
+	void createUser_rejectsDuplicateEmail_serviceValidation() throws Exception {
+		// Arrange: Create first user
+		User firstUser = userRepository.save(new User("duplicate@example.com", "First User", 25));
+
+		// Act: Try to create user with same email
+		User duplicateUser = new User("duplicate@example.com", "Second User", 30);
+		mockMvc.perform(post("/api/users")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(duplicateUser)))
+				// Assert: Should be rejected by service validation
+				.andExpect(status().isBadRequest());
+
+		// Verify: Only one user exists (original one)
+		assertThat(userRepository.count()).isEqualTo(1);
+		assertThat(userRepository.findAll().get(0).getName()).isEqualTo("First User");
+	}
+
+	// ============================================================================
+	// TEST 7: NOT FOUND SCENARIO
+	// ============================================================================
+
+	@Test
+	void getUserById_returnsNotFound_whenUserDoesNotExist() throws Exception {
+		// Act: Try to get non-existent user
+		mockMvc.perform(get("/api/users/999"))
+				.andExpect(status().isNotFound());
+	}
+
+	// ============================================================================
+	// TEST 8: REPOSITORY CUSTOM QUERY METHOD
+	// ============================================================================
+
+	/**
+	 * This test demonstrates that custom repository methods work
+	 * and can be used in integration tests
+	 */
+	@Test
+	void findByEmail_customRepositoryMethod_worksInIntegration() {
+		// Arrange: Save user
+		User user = userRepository.save(new User("custom@example.com", "Custom Query", 35));
+
+		// Act: Use custom repository method
+		User foundUser = userRepository.findByEmail("custom@example.com").orElseThrow();
+
+		// Assert: Verify it works
+		assertThat(foundUser.getId()).isEqualTo(user.getId());
+		assertThat(foundUser.getName()).isEqualTo("Custom Query");
+	}
+
+	// ============================================================================
+	// SUMMARY: WHAT THIS INTEGRATION TEST PROVES
+	// ============================================================================
+
+	/*
+	 * ✅ HTTP Layer (MockMvc) correctly handles requests
+	 * ✅ Controller correctly maps requests to service methods
+	 * ✅ Service business logic works correctly
+	 * ✅ Repository correctly interacts with database
+	 * ✅ Database correctly stores and retrieves data
+	 * ✅ All layers work together seamlessly
+	 * ✅ Transaction management works (@Transactional)
+	 * ✅ JSON serialization/deserialization works
+	 * ✅ Error handling works across layers
+	 * ✅ Custom repository methods work
+	 * 
+	 * This is a TRUE integration test - testing the system as a whole!
+	 */
+}
+
+
